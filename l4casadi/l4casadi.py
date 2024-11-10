@@ -75,7 +75,7 @@ class L4CasADi(object):
         if not scripting:
             warnings.warn("L4CasADi with Torch AOT compilation is experimental at this point and might not work as "
                           "expected.")
-            raise RuntimeError("PyTorch compile is not supported yet as it does not seem stable.")
+            # raise RuntimeError("PyTorch compile is not supported yet as it does not seem stable.")
             if torch.__version__ < torch.torch_version.TorchVersion('2.4.0'):
                 raise RuntimeError("For PyTorch versions < 2.4.0 L4CasADi only supports jit scripting. Please pass "
                                    "scripting=True.")
@@ -92,7 +92,8 @@ class L4CasADi(object):
                 parameters.requires_grad = False
         self.name = name
         self.batched = batched
-        self.device = device if isinstance(device, str) else f'{device.type}:{device.index}'
+        self.device = device if isinstance(
+            device, str) else f'{device.type}:{device.index}'
 
         self.build_dir = pathlib.Path(build_dir)
 
@@ -120,10 +121,12 @@ class L4CasADi(object):
         """
 
         if not self._mutable:
-            raise RuntimeError('To update the model online, please initialize L4CasADi with `mutable=True`.')
+            raise RuntimeError(
+                'To update the model online, please initialize L4CasADi with `mutable=True`.')
 
         if not self._built:
-            raise RuntimeError('L4CasADi has to be built first before the model can be updated.')
+            raise RuntimeError(
+                'L4CasADi has to be built first before the model can be updated.')
 
         if model is not None:
             self.model = model
@@ -185,8 +188,10 @@ class L4CasADi(object):
             rows, cols = inp.shape  # type: ignore[attr-defined]
             inp_sym = cs.MX.sym('inp', rows, cols)
             out_sym = self.model(inp_sym)
-            cs.Function(f'{self.name}', [inp_sym], [out_sym]).generate(f'{self.name}.cpp')
-            shutil.move(f'{self.name}.cpp', (self.build_dir / f'{self.name}.cpp').as_posix())
+            cs.Function(f'{self.name}', [inp_sym], [
+                        out_sym]).generate(f'{self.name}.cpp')
+            shutil.move(f'{self.name}.cpp', (self.build_dir /
+                        f'{self.name}.cpp').as_posix())
         else:
             self.generate(inp)
 
@@ -207,7 +212,9 @@ class L4CasADi(object):
 
     def generate(self, inp: Union[cs.MX, cs.SX, cs.DM]) -> None:
         self._input_shape = inp.shape  # type: ignore[attr-defined]
-        self._output_shape = self.model(torch.zeros(*self._input_shape).to(self.device)).shape
+        in_tensor = torch.ones(*self._input_shape).to(self.device).abs()
+
+        self._output_shape = self.model(in_tensor).shape
         self._verify_input_output()
 
         has_jac, has_adj1, has_jac_adj1, has_jac_jac = self.export_torch_traces()
@@ -223,11 +230,13 @@ class L4CasADi(object):
         if not has_jac_jac and self._generate_jac_jac:
             warnings.warn('Hessian trace could not be generated.'
                           ' Second-order sensitivities will not be available in CasADi.')
-        self._generate_cpp_function_template(has_jac, has_adj1, has_jac_adj1, has_jac_jac)
+        self._generate_cpp_function_template(
+            has_jac, has_adj1, has_jac_adj1, has_jac_jac)
 
     def _load_built_library_as_external_cs_fun(self):
         if not self._built:
-            raise RuntimeError('L4CasADi model has not been built yet. Call `build` first.')
+            raise RuntimeError(
+                'L4CasADi model has not been built yet. Call `build` first.')
         self._cs_fun = cs.external(
             f'{self.name}',
             f"{self.build_dir / f'lib{self.name}'}{dynamic_lib_file_ending()}"
@@ -249,9 +258,11 @@ class L4CasADi(object):
         row_ind = []
         for _ in range(input_size):
             for batch_idx in range(batch_size):
-                row_ind += list(range(batch_idx, batch_idx + batch_size * output_size, batch_size))
+                row_ind += list(range(batch_idx, batch_idx +
+                                batch_size * output_size, batch_size))
 
-        jac_ccs = [batch_size * output_size, batch_size * input_size] + col_ptr + row_ind
+        jac_ccs = [batch_size * output_size,
+                   batch_size * input_size] + col_ptr + row_ind
 
         # Hessian dimensions [batch_size * output_size * batch_size * input_size, batch_size * input_size]
         col_ptr = list(range(0, batch_size * input_size * output_size * input_size, input_size * output_size)) + [
@@ -266,7 +277,8 @@ class L4CasADi(object):
                                            + batch_idx + batch_size * output_size),
                                           batch_size))
 
-        hess_ccs = [batch_size * output_size * batch_size * input_size, batch_size * input_size] + col_ptr + row_ind
+        hess_ccs = [batch_size * output_size * batch_size *
+                    input_size, batch_size * input_size] + col_ptr + row_ind
 
         return jac_ccs, hess_ccs
 
@@ -335,7 +347,8 @@ class L4CasADi(object):
 
         status = os.system(os_cmd)
         if status != 0:
-            raise Exception(f'Compilation failed!\n\nAttempted to execute OS command:\n{os_cmd}\n\n')
+            raise Exception(
+                f'Compilation failed!\n\nAttempted to execute OS command:\n{os_cmd}\n\n')
 
     def _trace_jac_model(self, inp):
         if self.batched:
@@ -379,17 +392,17 @@ class L4CasADi(object):
         return make_fx(functionalize(jacrev(jacrev(self.model)), remove='mutations_and_views'))(inp)
 
     def export_torch_traces(self) -> Tuple[bool, bool, bool, bool]:
-        d_inp = torch.zeros(self._input_shape)
+        d_inp = torch.ones(self._input_shape)
         d_inp = d_inp.to(self.device)
 
-        d_out = torch.zeros(self._output_shape)
+        d_out = torch.ones(self._output_shape)
         d_out = d_out.to(self.device)
 
         out_folder = self.build_dir
 
         self.model_compile(make_fx(functionalize(self.model, remove='mutations_and_views'))(d_inp),
-                                   (out_folder / f'{self.name}.pt').as_posix(),
-                                   (d_inp,))
+                           (out_folder / f'{self.name}.pt').as_posix(),
+                           (d_inp,))
 
         exported_jac = False
         if self._generate_jac:
@@ -449,7 +462,8 @@ class L4CasADi(object):
                 torch._export.aot_compile(
                     model,
                     dummy_inp,
-                    options={"aot_inductor.output_path": file_path[:-2] + 'so'},
+                    options={
+                        "aot_inductor.output_path": file_path[:-2] + 'so'},
                 )
             return True
         except:  # noqa
